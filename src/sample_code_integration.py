@@ -19,7 +19,7 @@ def fetch_emails(context: "TaskContext") -> List[Any]:
     body = request.get("body") or {}
 
     result = context.component.googleMail.searchEmail(
-        {"from": body.get("from"), "maxResults": body.get("maxResults") or 10}, "gmail"
+        {"from": body.get("from"), "maxResults": body.get("maxResults") or 10}
     )
 
     messages: List[Any] = result.get("messages") or []
@@ -66,11 +66,8 @@ integration: "IntegrationDefinition" = {
                     "name": "fetchEmails",
                     "label": "Fetch Emails",
                     "description": "Searches the inbox with the Gmail Search Email action.",
-                    # A code task's perform calls actions itself, so it declares the connections it uses; the name is
-                    # what perform passes to the action. One on the integration's own component is the connected user's
-                    # integration connection; one on any other component is wired by an administrator in the instance
-                    # configuration.
-                    "connections": [{"componentName": "googleMail", "name": "gmail"}],
+                    # A call to the integration's own component needs no declared connection: it runs on the
+                    # connected user's integration connection. Declare and name only connections to other components.
                     "perform": fetch_emails,
                 }
             ],

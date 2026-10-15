@@ -26,20 +26,28 @@ output of every task that already ran (under the task's name); `context.input("n
 
 ### Connections
 
-A task names the connections it uses, and calls a component action through one of them:
+A task calls an action of the integration's own component - `googleMail` here - without declaring a connection. It
+runs on the connected user's integration connection, which ByteChef binds when the workflow runs:
 
 ```python
 def fetch_emails(context: "TaskContext") -> Any:
-    return context.component.googleMail.searchEmail({"maxResults": 10}, "gmail")
+    return context.component.googleMail.searchEmail({"maxResults": 10})
 
 # in the task definition:
-"connections": [{"componentName": "googleMail", "name": "gmail"}],
 "perform": fetch_emails,
 ```
 
-A connection on the integration's own component - `googleMail` here - is the connected user's integration connection;
-ByteChef binds it when the workflow runs. A connection on any other component (say `slack`) is chosen by an
-administrator in the integration's instance configuration and is the same for every connected user.
+A task that calls any other component (say `slack`) declares that connection and passes its name. An administrator
+chooses it in the integration's instance configuration, and it is the same for every connected user:
+
+```python
+def notify(context: "TaskContext") -> Any:
+    return context.component.slack.sendChannelMessage({"channel": "C0123456", "text": "New email"}, "slack")
+
+# in the task definition:
+"connections": [{"componentName": "slack", "name": "slack"}],
+"perform": notify,
+```
 
 ## Types
 

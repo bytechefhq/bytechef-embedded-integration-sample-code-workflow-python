@@ -6,8 +6,16 @@
 import ast
 import json
 import sys
-from types import SimpleNamespace
-from typing import Any, Dict, List, NoReturn, Optional
+from typing import Any, Callable, Dict, List, NoReturn, Optional
+
+# Stands in for the platform: a component action returns a fixed sample, a trigger output and a request body are
+# fixed samples too, so every task can run without a server or a real connection.
+SAMPLE_EMAIL: Dict[str, Any] = {
+    "from": "ada@example.com",
+    "id": "18c2f0a1",
+    "subject": "Welcome",
+    "threadId": "18c2f0a1",
+}
 
 
 def fail(message: str) -> NoReturn:
@@ -34,9 +42,43 @@ def evaluate(file: str) -> Any:
     return eval(compile(ast.Expression(body=last_expression.value), file, "eval"), namespace)
 
 
+class StubComponent:
+    def __init__(self, component_name: str) -> None:
+        self._component_name = component_name
+
+    def __getattr__(self, action_name: str) -> Callable[..., Dict[str, Any]]:
+        if action_name.startswith("__"):
+            raise AttributeError(action_name)
+
+        def action(action_input: Any, connection_name: Optional[str] = None, *arguments: Any) -> Dict[str, Any]:
+            print(
+                "  " + self._component_name + "." + action_name
+                + "(" + json.dumps(action_input) + ", " + json.dumps(connection_name) + ")"
+            )
+
+            return {"messages": [dict(SAMPLE_EMAIL)]}
+
+        return action
+
+
+class StubComponents:
+    def __getattr__(self, component_name: str) -> StubComponent:
+        if component_name.startswith("__"):
+            raise AttributeError(component_name)
+
+        return StubComponent(component_name)
+
+
+def trigger_output(trigger: Dict[str, Any]) -> Dict[str, Any]:
+    if str(trigger.get("type")).startswith("request/"):
+        return {"body": {}}
+
+    return dict(SAMPLE_EMAIL)
+
+
 class StubContext:
     def __init__(self, task: Dict[str, Any], workflow_input: Dict[str, Any]) -> None:
-        self.component = SimpleNamespace()
+        self.component = StubComponents()
         self._task = task
         self._workflow_input = workflow_input
 
@@ -106,6 +148,9 @@ def main(arguments: List[str]) -> None:
         )
 
         workflow_input = dict(workflow_input_defaults)
+
+        for trigger in triggers or []:
+            workflow_input[trigger["name"]] = trigger_output(trigger)
 
         for task in workflow.get("tasks") or []:
             if not isinstance(task.get("name"), str) or not callable(task.get("perform")):

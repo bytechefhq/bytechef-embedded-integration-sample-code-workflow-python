@@ -10,12 +10,36 @@ assigned to `integration`, and ends with `integration` alone on the last line. T
 `main()` wrapper, hides the dict from the server.
 
 A code integration is keyed by the component it integrates, and that component must exist on the server. This sample
-uses the built-in HTTP Client, `httpClient` version 1. It has one workflow, `echoMessage`: it takes a `message`
-input, runs one task, `shout`, that upper-cases it, and exposes that as the `result` output.
+uses the built-in Gmail component, `googleMail` version 1, so connecting the integration means connecting a Gmail
+account. It has two workflows:
 
-Inside `perform`, `context.input()` returns the workflow inputs plus the output of every task that already ran
-(under the task's name), `context.input("message")` returns one of them, and `context.log(level, message)` writes to
-the execution log.
+- `summarizeNewEmail` starts with the Gmail **New Email** polling trigger (`googleMail/v1/newEmailPolling`). It runs once
+  for every new email and its `summarize` task returns a one-line summary as the `summary` output. A Gmail trigger on a
+  Gmail integration runs on the connection the connected user created when they connected the integration - there is
+  nothing to declare.
+- `fetchRecentEmails` starts with a request trigger, so you call it over HTTP. Its `fetchEmails` task calls the Gmail
+  **Search Email** action and returns the matching messages as the `emails` output.
+
+Inside `perform`, `context.input()` returns the workflow inputs, the trigger output (under the trigger's name) and the
+output of every task that already ran (under the task's name); `context.input("newEmail")` returns one of them, and
+`context.log(level, message)` writes to the execution log.
+
+### Connections
+
+A task names the connections it uses, and calls a component action through one of them:
+
+```python
+def fetch_emails(context: "TaskContext") -> Any:
+    return context.component.googleMail.searchEmail({"maxResults": 10}, "gmail")
+
+# in the task definition:
+"connections": [{"componentName": "googleMail", "name": "gmail"}],
+"perform": fetch_emails,
+```
+
+A connection on the integration's own component - `googleMail` here - is the connected user's integration connection;
+ByteChef binds it when the workflow runs. A connection on any other component (say `slack`) is chosen by an
+administrator in the integration's instance configuration and is the same for every connected user.
 
 ## Types
 
@@ -23,19 +47,20 @@ The keys are the same camelCase keys as in a JavaScript code integration (`compo
 `componentVersion` an integer). To have a type checker catch a missing `componentName` or a misspelled `perform`, the
 file is annotated with the types from the
 [`bytechef-workflow-api`](https://pypi.org/project/bytechef-workflow-api/) package:
-`integration: "IntegrationDefinition"` and `def shout(context: "TaskContext") -> str`. The ByteChef runtime can't
+`integration: "IntegrationDefinition"` and `def summarize(context: "TaskContext") -> str`. The ByteChef runtime can't
 import that package, so the file imports it only under `typing.TYPE_CHECKING` and quotes the annotations; at run time
 the import is skipped. Standard-library imports are fine; nothing else is available on the server.
 
 ## Check
 
 ```bash
-python3 scripts/check.py src/sample_code_integration.py message=hello
+python3 scripts/check.py src/sample_code_integration.py
 ```
 
 Evaluates the file the same way the server does (runs every statement but the last, then evaluates the last
-expression), checks its shape and runs each task once with a stub context. It needs only Python 3.9 or later; there
-are no dependencies to install.
+expression), checks its shape and runs each task once with a stub context. The stub stands in for Gmail: every trigger
+output and every component action call returns a fixed sample email, and a request trigger an empty body. It needs
+only Python 3.9 or later; there are no dependencies to install.
 
 To type check the file as well:
 
@@ -76,3 +101,22 @@ curl -X POST "$BYTECHEF_URL/api/embedded/v1/integration-code-workflows/deploy" \
 ```
 
 `BYTECHEF_URL` is the server's base URL, for example `http://localhost:9555` for a local development server.
+
+## Enable and run
+
+Deploying with `?enable=true` also enables the integration in that environment. A Gmail integration needs Gmail OAuth
+app credentials first: an administrator enters them in the integration's instance configuration, and until then the
+enable is refused.
+
+Once a connected user has connected the integration and enabled `fetchRecentEmails` on their integration instance
+(`POST /api/embedded/v1/integration-instances/{id}/workflows/{workflowUuid}/enable`), call it with their JWT:
+
+```bash
+curl -X POST "$BYTECHEF_URL/api/embedded/v1/workflows/$WORKFLOW_UUID" \
+  -H "Authorization: Bearer $CONNECTED_USER_JWT" \
+  -H "X-ENVIRONMENT: DEVELOPMENT" \
+  -H "Content-Type: application/json" \
+  -d '{"from": "ada@example.com", "maxResults": 5}'
+```
+
+The body is optional. `summarizeNewEmail` needs no call: once enabled, it runs whenever a new email arrives.

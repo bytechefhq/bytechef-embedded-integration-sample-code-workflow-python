@@ -29,6 +29,18 @@ def fetch_emails(context: "TaskContext") -> List[Any]:
     return messages
 
 
+def post_to_slack(context: "TaskContext") -> Any:
+    email = context.input("newEmail")
+
+    text = f"New email from {email['from']}: {email['subject']}"
+
+    message = context.component.slack.sendChannelMessage({"channel": context.input("channel"), "text": text}, "slack")
+
+    context.log("info", f"Posted to Slack: {text}")
+
+    return message
+
+
 integration: "IntegrationDefinition" = {
     "componentName": "googleMail",
     "componentVersion": 1,
@@ -69,6 +81,28 @@ integration: "IntegrationDefinition" = {
                     # A call to the integration's own component needs no declared connection: it runs on the
                     # connected user's integration connection. Declare and name only connections to other components.
                     "perform": fetch_emails,
+                }
+            ],
+        },
+        {
+            "name": "notifySlackOnNewEmail",
+            "label": "Notify Slack on New Email",
+            "description": "Posts every new email in the connected user's inbox to a Slack channel.",
+            "inputs": [{"name": "channel", "label": "Slack Channel ID", "type": "STRING", "required": True}],
+            "triggers": [
+                {"name": "newEmail", "type": "googleMail/v1/newEmailPolling", "parameters": {"format": "SIMPLE"}}
+            ],
+            "outputs": [{"name": "message", "task": "postToSlack"}],
+            "tasks": [
+                {
+                    "name": "postToSlack",
+                    "label": "Post to Slack",
+                    "description": "Posts the sender and subject with the Slack Send Channel Message action.",
+                    # Slack is not the integration's component, so the task declares its connection and
+                    # passes the name. An administrator picks the Slack connection when enabling the
+                    # workflow in the integration's instance configuration.
+                    "connections": [{"componentName": "slack", "name": "slack"}],
+                    "perform": post_to_slack,
                 }
             ],
         },

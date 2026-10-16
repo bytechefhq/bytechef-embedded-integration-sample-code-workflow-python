@@ -11,7 +11,7 @@ assigned to `integration`, and ends with `integration` alone on the last line. T
 
 A code integration is keyed by the component it integrates, and that component must exist on the server. This sample
 uses the built-in Gmail component, `googleMail` version 1, so connecting the integration means connecting a Gmail
-account. It has two workflows:
+account. It has three workflows:
 
 - `summarizeNewEmail` starts with the Gmail **New Email** polling trigger (`googleMail/v1/newEmailPolling`). It runs once
   for every new email and its `summarize` task returns a one-line summary as the `summary` output. A Gmail trigger on a
@@ -19,6 +19,10 @@ account. It has two workflows:
   nothing to declare.
 - `fetchRecentEmails` starts with a request trigger, so you call it over HTTP. Its `fetchEmails` task calls the Gmail
   **Search Email** action and returns the matching messages as the `emails` output.
+- `notifySlackOnNewEmail` starts with the same Gmail trigger and takes a required `channel` input, the ID of a Slack
+  channel. Its `postToSlack` task calls the Slack **Send Channel Message** action, and Slack is not the integration's
+  component, so the task declares a `slack` connection and passes its name. An administrator picks that connection when
+  enabling the workflow in the integration's instance configuration; until one is picked the workflow cannot be enabled.
 
 Inside `perform`, `context.input()` returns the workflow inputs, the trigger output (under the trigger's name) and the
 output of every task that already ran (under the task's name); `context.input("newEmail")` returns one of them, and

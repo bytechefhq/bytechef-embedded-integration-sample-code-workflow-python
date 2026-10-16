@@ -88,7 +88,18 @@ integration: "IntegrationDefinition" = {
             "name": "notifySlackOnNewEmail",
             "label": "Notify Slack on New Email",
             "description": "Posts every new email in the connected user's inbox to a Slack channel.",
-            "inputs": [{"name": "channel", "label": "Slack Channel ID", "type": "STRING", "required": True}],
+            # Takes its options from Slack's channel input, so the channel is picked from the workspace's channels.
+            "inputs": [
+                {
+                    "name": "channel",
+                    "label": "Slack Channel",
+                    "type": "STRING",
+                    "required": True,
+                    "componentName": "slack",
+                    "componentVersion": 1,
+                    "groupName": "channel",
+                }
+            ],
             "triggers": [
                 {"name": "newEmail", "type": "googleMail/v1/newEmailPolling", "parameters": {"format": "SIMPLE"}}
             ],

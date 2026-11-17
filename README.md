@@ -1,13 +1,13 @@
 # bytechef-embedded-integration-sample-code-workflow-python
 
 A sample ByteChef **embedded code integration** written in Python. The whole integration is one file,
-[`src/sample_code_integration.py`](src/sample_code_integration.py), and that file is what you deploy - there is no
-build step. The file is a single Python script. The server runs it with GraalPy and reads the value of its **last
+[`src/sample_code_integration.py`](src/sample_code_integration.py), and that file is what you deploy - there is no build
+step. The file is a single Python script. The server runs it with GraalPy and reads the value of its **last
 expression**: the script defines each task's `perform` function with `def`, builds the integration as a plain `dict`
 assigned to `integration`, and ends with `integration` alone on the last line. The server reads the dict's
 `componentName`, `componentVersion`, `description`, `version` and `workflows`, then calls each task's
-`perform(context)` when the workflow runs. Keep the definition a plain dict and keep it last: anything after it, or a
-`main()` wrapper, hides the dict from the server.
+`perform(input, context)` when the workflow runs. Keep the definition a plain dict and keep it last: anything after it,
+or a `main()` wrapper, hides the dict from the server.
 
 A code integration is keyed by the component it integrates, and that component must exist on the server. This sample
 uses the built-in Gmail component, `googleMail` version 1, so connecting the integration means connecting a Gmail
@@ -26,9 +26,11 @@ account. It has three workflows:
   that connection when enabling the workflow in the integration's instance configuration; until one is picked the
   workflow cannot be enabled, and the channel list stays empty.
 
-Inside `perform`, `context.input()` returns the workflow inputs, the trigger output (under the trigger's name) and the
-output of every task that already ran (under the task's name); `context.input("newEmail")` returns one of them, and
-`context.log(level, message)` writes to the execution log.
+A task's `perform` takes `(input, context)`. `input` is a dict of the workflow inputs, the trigger output (under the
+trigger's name) and the output of every task that already ran (under the task's name), so `input["newEmail"]` returns
+one of them, and `context.log(level, message)` writes to the execution log. A task that reads its connections'
+parameters, to build a request itself, declares a third parameter and takes `perform(input, connection, context)`
+instead: `connection` maps each declared connection's name to that connection's parameters, credentials included.
 
 ### Connections
 
@@ -36,7 +38,7 @@ A task calls an action of the integration's own component - `googleMail` here - 
 runs on the connected user's integration connection, which ByteChef binds when the workflow runs:
 
 ```python
-def fetch_emails(context: "TaskContext") -> Any:
+def fetch_emails(input: Dict[str, Any], context: "TaskContext") -> Any:
     return context.component.googleMail.searchEmail({"maxResults": 10})
 
 # in the task definition:
@@ -47,7 +49,7 @@ A task that calls any other component (say `slack`) declares that connection and
 chooses it in the integration's instance configuration, and it is the same for every connected user:
 
 ```python
-def notify(context: "TaskContext") -> Any:
+def notify(input: Dict[str, Any], context: "TaskContext") -> Any:
     return context.component.slack.sendChannelMessage({"channel": "C0123456", "text": "New email"}, "slack")
 
 # in the task definition:
@@ -59,11 +61,11 @@ def notify(context: "TaskContext") -> Any:
 
 The keys are the same camelCase keys as in a JavaScript code integration (`componentName` is a string,
 `componentVersion` an integer). To have a type checker catch a missing `componentName` or a misspelled `perform`, the
-file is annotated with the types from the
-[`bytechef-workflow-api`](https://pypi.org/project/bytechef-workflow-api/) package:
-`integration: "IntegrationDefinition"` and `def summarize(context: "TaskContext") -> str`. The ByteChef runtime can't
-import that package, so the file imports it only under `typing.TYPE_CHECKING` and quotes the annotations; at run time
-the import is skipped. Standard-library imports are fine; nothing else is available on the server.
+file is annotated with the types from the [`bytechef-workflow-api`](https://pypi.org/project/bytechef-workflow-api/)
+package: `integration: "IntegrationDefinition"` and
+`def summarize(input: Dict[str, Any], context: "TaskContext") -> str`. The ByteChef runtime can't import that package,
+so the file imports it only under `typing.TYPE_CHECKING` and quotes the annotations; at run time the import is skipped.
+Standard-library imports are fine; nothing else is available on the server.
 
 ## Check
 

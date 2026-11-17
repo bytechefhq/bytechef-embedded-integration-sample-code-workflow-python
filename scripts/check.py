@@ -9,7 +9,8 @@ import sys
 from typing import Any, Callable, Dict, List, NoReturn, Optional
 
 # Stands in for the platform: a component action returns a fixed sample, a trigger output and a request body are
-# fixed samples too, so every task can run without a server or a real connection.
+# fixed samples too, and a declared connection has no parameters, so every task can run without a server or a real
+# connection.
 SAMPLE_EMAIL: Dict[str, Any] = {
     "from": "ada@example.com",
     "id": "18c2f0a1",
@@ -77,24 +78,33 @@ def trigger_output(trigger: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class StubContext:
-    def __init__(self, task: Dict[str, Any], workflow_input: Dict[str, Any]) -> None:
+    def __init__(self) -> None:
         self.component = StubComponents()
-        self._task = task
-        self._workflow_input = workflow_input
-
-    def connection(self, connection_name: str) -> Dict[str, Any]:
-        return {}
-
-    def input(self, name: Optional[str] = None) -> Any:
-        return self._workflow_input if name is None else self._workflow_input.get(name)
 
     def log(self, level: str, message: str) -> None:
         print("  [" + level + "] " + message)
 
-    def parameters(self) -> Dict[str, Any]:
-        parameters: Dict[str, Any] = self._task.get("parameters") or {}
 
-        return parameters
+def required_parameter_count(perform: Callable[..., Any]) -> int:
+    code = getattr(perform, "__code__", None)
+
+    if code is None:
+        return 2
+
+    defaults = getattr(perform, "__defaults__", None) or ()
+
+    return int(code.co_argcount) - len(defaults)
+
+
+def task_connection(task: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    connections = task.get("connections") or []
+
+    if isinstance(connections, dict):
+        connection_names = list(connections)
+    else:
+        connection_names = [connection["name"] for connection in connections]
+
+    return {connection_name: {} for connection_name in connection_names}
 
 
 def main(arguments: List[str]) -> None:
@@ -156,7 +166,13 @@ def main(arguments: List[str]) -> None:
             if not isinstance(task.get("name"), str) or not callable(task.get("perform")):
                 fail("every task needs a name and a perform function")
 
-            result = task["perform"](StubContext(task, workflow_input))
+            perform = task["perform"]
+            task_input = dict(workflow_input)
+
+            if required_parameter_count(perform) >= 3:
+                result = perform(task_input, task_connection(task), StubContext())
+            else:
+                result = perform(task_input, StubContext())
 
             print("  task " + task["name"] + " -> " + json.dumps(result))
 

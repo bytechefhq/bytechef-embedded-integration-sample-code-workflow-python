@@ -41,6 +41,14 @@ def post_to_slack(input: Dict[str, Any], context: "TaskContext") -> Any:
     return message
 
 
+def describe(input: Dict[str, Any], context: "TaskContext") -> Dict[str, Any]:
+    email = input["newEmail"]
+
+    context.log("info", f"Describing email {email['id']}")
+
+    return {"sender": email["from"], "subject": email["subject"]}
+
+
 integration: "IntegrationDefinition" = {
     "componentName": "googleMail",
     "componentVersion": 1,
@@ -106,6 +114,26 @@ integration: "IntegrationDefinition" = {
                     "connections": [{"componentName": "slack", "name": "slack"}],
                     "perform": post_to_slack,
                 }
+            ],
+        },
+        {
+            "name": "logNewEmailSender",
+            "label": "Log New Email Sender",
+            "description": (
+                "Logs the sender of every new email in the connected user's inbox with the Logger component."
+            ),
+            "triggers": [
+                {"name": "newEmail", "type": "googleMail/v1/newEmailPolling", "parameters": {"format": "SIMPLE"}}
+            ],
+            "tasks": [
+                {"name": "describe", "label": "Describe", "perform": describe},
+                {
+                    "name": "logSender",
+                    "label": "Log Sender",
+                    "description": "Writes the sender and subject to the execution log with the Logger Info action.",
+                    "type": "logger/v1/info",
+                    "parameters": {"text": "New email from ${describe.sender}: ${describe.subject}"},
+                },
             ],
         },
     ],

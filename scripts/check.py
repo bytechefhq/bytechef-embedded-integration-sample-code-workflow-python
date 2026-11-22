@@ -5,6 +5,7 @@
 
 import ast
 import json
+import re
 import sys
 from typing import Any, Callable, Dict, List, NoReturn, Optional
 
@@ -71,7 +72,7 @@ class StubComponents:
 
 
 def trigger_output(trigger: Dict[str, Any]) -> Dict[str, Any]:
-    if str(trigger.get("type")).startswith("request/"):
+    if str(trigger.get("type")).startswith(("request/", "apiPlatform/")):
         return {"body": {}}
 
     return dict(SAMPLE_EMAIL)
@@ -105,6 +106,78 @@ def task_connection(task: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         connection_names = [connection["name"] for connection in connections]
 
     return {connection_name: {} for connection_name in connection_names}
+
+
+COMPONENT_TASK_TYPE_PATTERN = re.compile(r"[^/\s]+/v[1-9]\d{0,8}/[^/\s]+")
+
+EXPRESSION_PATTERN = re.compile(r"\$\{([^}]+)\}")
+
+
+def evaluate_expression(expression: str, values: Dict[str, Any]) -> Any:
+    value: Any = values
+
+    for segment in re.findall(r"[^.\[\]]+", expression):
+        if value is None:
+            return None
+
+        if isinstance(value, list):
+            index = int(segment)
+
+            value = value[index] if index < len(value) else None
+        elif isinstance(value, dict):
+            value = value.get(segment)
+        else:
+            return None
+
+    return value
+
+
+def resolve_parameter(parameter: Any, values: Dict[str, Any]) -> Any:
+    if isinstance(parameter, str):
+        whole_expression = EXPRESSION_PATTERN.fullmatch(parameter)
+
+        if whole_expression:
+            return evaluate_expression(whole_expression.group(1), values)
+
+        return EXPRESSION_PATTERN.sub(
+            lambda match: json_text(evaluate_expression(match.group(1), values)), parameter)
+
+    if isinstance(parameter, list):
+        return [resolve_parameter(item, values) for item in parameter]
+
+    if isinstance(parameter, dict):
+        return {key: resolve_parameter(value, values) for key, value in parameter.items()}
+
+    return parameter
+
+
+def json_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+
+    return json.dumps(value)
+
+
+def run_component_task(task: Dict[str, Any], values: Dict[str, Any]) -> Any:
+    task_type = task["type"]
+
+    if not COMPONENT_TASK_TYPE_PATTERN.fullmatch(task_type):
+        fail(
+            "task " + task["name"] + " has type " + task_type
+            + "; a component task type is <component>/v<version>/<action>"
+        )
+
+    if "perform" in task or "connections" in task:
+        fail(
+            "task " + task["name"] + " runs component action " + task_type
+            + ", so it cannot declare perform or connections"
+        )
+
+    parameters = resolve_parameter(task.get("parameters") or {}, values)
+
+    print("  " + task_type + "(" + json.dumps(parameters) + ")")
+
+    return parameters
 
 
 def main(arguments: List[str]) -> None:
@@ -163,8 +236,17 @@ def main(arguments: List[str]) -> None:
             workflow_input[trigger["name"]] = trigger_output(trigger)
 
         for task in workflow.get("tasks") or []:
+            if isinstance(task.get("name"), str) and isinstance(task.get("type"), str):
+                component_task_result = run_component_task(task, workflow_input)
+
+                print("  task " + task["name"] + " -> " + json.dumps(component_task_result))
+
+                workflow_input[task["name"]] = component_task_result
+
+                continue
+
             if not isinstance(task.get("name"), str) or not callable(task.get("perform")):
-                fail("every task needs a name and a perform function")
+                fail("every task needs a name and either a perform function or a component action type")
 
             perform = task["perform"]
             task_input = dict(workflow_input)
